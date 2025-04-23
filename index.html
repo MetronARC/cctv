@@ -18,6 +18,7 @@
             border-radius: 10px;
             padding: 20px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            position: relative;
         }
         body {
             background-color: #f8f9fa;
@@ -33,6 +34,22 @@
         .video-js {
             width: 100%;
             border-radius: 5px;
+        }
+        #detectionCanvas {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+        }
+        .detection-stats {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 1000;
         }
     </style>
 </head>
@@ -62,6 +79,10 @@
                         <span class="badge bg-success">Live</span>
                     </div>
                     <div class="card-body video-container">
+                        <div class="detection-stats">
+                            <div>People Detected: <span id="peopleCount">0</span></div>
+                            <div>FPS: <span id="fps">0</span></div>
+                        </div>
                         <video 
                             id="videoPlayer" 
                             class="video-js vjs-default-skin vjs-big-play-centered" 
@@ -70,6 +91,7 @@
                             data-setup='{"fluid": true}'>
                             <source src="output.m3u8" type="application/x-mpegURL" />
                         </video>
+                        <canvas id="detectionCanvas"></canvas>
                     </div>
                 </div>
             </div>
@@ -107,10 +129,94 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/video.js/dist/video.js"></script>
+    <!-- TensorFlow.js and COCO-SSD model -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <script>
         // Initialize video player
         var player = videojs('videoPlayer');
         player.play();
+
+        // Detection variables
+        let model;
+        let canvas;
+        let context;
+        let peopleCount = 0;
+        let lastDrawTime = performance.now();
+        const videoElement = document.querySelector('.video-js');
+
+        // Load the COCO-SSD model
+        async function loadModel() {
+            model = await cocoSsd.load();
+            console.log('Model loaded');
+            // Start detection once the model is loaded
+            detectFrame();
+        }
+
+        // Initialize canvas
+        function setupCanvas() {
+            canvas = document.getElementById('detectionCanvas');
+            context = canvas.getContext('2d');
+            
+            // Update canvas size when video loads
+            player.on('loadedmetadata', function() {
+                const videoWidth = videoElement.offsetWidth;
+                const videoHeight = videoElement.offsetHeight;
+                canvas.width = videoWidth;
+                canvas.height = videoHeight;
+            });
+        }
+
+        // Detect objects in the video frame
+        async function detectFrame() {
+            if (!model) return;
+            
+            try {
+                const predictions = await model.detect(videoElement);
+                
+                // Clear previous drawings
+                context.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Filter for people and draw bounding boxes
+                const people = predictions.filter(pred => pred.class === 'person');
+                peopleCount = people.length;
+                document.getElementById('peopleCount').textContent = peopleCount;
+
+                // Draw bounding boxes
+                people.forEach(prediction => {
+                    // Draw rectangle
+                    context.strokeStyle = '#00ff00';
+                    context.lineWidth = 2;
+                    context.strokeRect(
+                        prediction.bbox[0],
+                        prediction.bbox[1],
+                        prediction.bbox[2],
+                        prediction.bbox[3]
+                    );
+
+                    // Draw label
+                    context.fillStyle = '#00ff00';
+                    context.font = '16px Arial';
+                    context.fillText(
+                        'Person: ' + Math.round(prediction.score * 100) + '%',
+                        prediction.bbox[0],
+                        prediction.bbox[1] > 10 ? prediction.bbox[1] - 5 : 10
+                    );
+                });
+
+                // Calculate and update FPS
+                const currentTime = performance.now();
+                const fps = Math.round(1000 / (currentTime - lastDrawTime));
+                document.getElementById('fps').textContent = fps;
+                lastDrawTime = currentTime;
+
+                // Request next frame
+                requestAnimationFrame(detectFrame);
+            } catch (error) {
+                console.error('Detection error:', error);
+                requestAnimationFrame(detectFrame);
+            }
+        }
 
         // Update uptime counter
         function updateUptime() {
@@ -124,6 +230,10 @@
                 uptimeElement.textContent = `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
             }, 1000);
         }
+
+        // Initialize everything
+        setupCanvas();
+        loadModel();
         updateUptime();
     </script>
 </body>
