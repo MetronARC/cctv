@@ -18,8 +18,6 @@
             border-radius: 10px;
             padding: 20px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            position: relative;
-            overflow: hidden;
         }
         body {
             background-color: #f8f9fa;
@@ -35,24 +33,6 @@
         .video-js {
             width: 100%;
             border-radius: 5px;
-        }
-        #detectionCanvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-        }
-        .detection-stats {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 10px;
-            border-radius: 5px;
-            z-index: 1000;
         }
     </style>
 </head>
@@ -82,10 +62,6 @@
                         <span class="badge bg-success">Live</span>
                     </div>
                     <div class="card-body video-container">
-                        <div class="detection-stats">
-                            <div>People Detected: <span id="peopleCount">0</span></div>
-                            <div>FPS: <span id="fps">0</span></div>
-                        </div>
                         <video 
                             id="videoPlayer" 
                             class="video-js vjs-default-skin vjs-big-play-centered" 
@@ -94,7 +70,6 @@
                             data-setup='{"fluid": true}'>
                             <source src="output.m3u8" type="application/x-mpegURL" />
                         </video>
-                        <canvas id="detectionCanvas"></canvas>
                     </div>
                 </div>
             </div>
@@ -132,128 +107,10 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/video.js/dist/video.js"></script>
-    <!-- TensorFlow.js and COCO-SSD model -->
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <script>
         // Initialize video player
         var player = videojs('videoPlayer');
-        
-        // Detection variables
-        let model;
-        let canvas;
-        let context;
-        let peopleCount = 0;
-        let lastDrawTime = performance.now();
-        let videoElement = null;
-
-        // Load the COCO-SSD model
-        async function loadModel() {
-            try {
-                model = await cocoSsd.load();
-                console.log('Model loaded');
-                // Start detection once both model is loaded and video is ready
-                if (videoElement && videoElement.readyState >= 2) {
-                    detectFrame();
-                }
-            } catch (error) {
-                console.error('Error loading model:', error);
-            }
-        }
-
-        // Initialize canvas
-        function setupCanvas() {
-            canvas = document.getElementById('detectionCanvas');
-            context = canvas.getContext('2d');
-            
-            // Get the actual video element
-            videoElement = document.querySelector('.video-js video');
-            
-            // Function to update canvas size and position
-            function updateCanvasSize() {
-                const videoRect = videoElement.getBoundingClientRect();
-                canvas.style.top = videoRect.top + 'px';
-                canvas.style.left = videoRect.left + 'px';
-                canvas.width = videoElement.videoWidth || videoRect.width;
-                canvas.height = videoElement.videoHeight || videoRect.height;
-                
-                // Scale the canvas context to match video dimensions
-                const scaleX = videoRect.width / canvas.width;
-                const scaleY = videoRect.height / canvas.height;
-                context.setTransform(scaleX, 0, 0, scaleY, 0, 0);
-            }
-            
-            // Update canvas size when video loads and on resize
-            player.on('loadedmetadata', updateCanvasSize);
-            window.addEventListener('resize', updateCanvasSize);
-            
-            // Start detection if model is already loaded
-            if (model) {
-                detectFrame();
-            }
-        }
-
-        // Detect objects in the video frame
-        async function detectFrame() {
-            if (!model || !videoElement || videoElement.readyState < 2) {
-                requestAnimationFrame(detectFrame);
-                return;
-            }
-            
-            try {
-                const predictions = await model.detect(videoElement);
-                
-                // Clear previous drawings
-                context.clearRect(0, 0, videoElement.videoWidth, videoElement.videoHeight);
-                
-                // Filter for people and draw bounding boxes
-                const people = predictions.filter(pred => pred.class === 'person');
-                peopleCount = people.length;
-                document.getElementById('peopleCount').textContent = peopleCount;
-
-                // Draw bounding boxes
-                people.forEach(prediction => {
-                    const [x, y, width, height] = prediction.bbox;
-                    
-                    // Ensure coordinates are within video bounds
-                    const boundedX = Math.max(0, Math.min(x, videoElement.videoWidth));
-                    const boundedY = Math.max(0, Math.min(y, videoElement.videoHeight));
-                    const boundedWidth = Math.min(width, videoElement.videoWidth - boundedX);
-                    const boundedHeight = Math.min(height, videoElement.videoHeight - boundedY);
-
-                    // Draw rectangle
-                    context.strokeStyle = '#00ff00';
-                    context.lineWidth = 2;
-                    context.strokeRect(
-                        boundedX,
-                        boundedY,
-                        boundedWidth,
-                        boundedHeight
-                    );
-
-                    // Draw label
-                    context.fillStyle = '#00ff00';
-                    context.font = '16px Arial';
-                    context.fillText(
-                        'Person: ' + Math.round(prediction.score * 100) + '%',
-                        boundedX,
-                        boundedY > 10 ? boundedY - 5 : boundedY + 20
-                    );
-                });
-
-                // Calculate and update FPS
-                const currentTime = performance.now();
-                const fps = Math.round(1000 / (currentTime - lastDrawTime));
-                document.getElementById('fps').textContent = fps;
-                lastDrawTime = currentTime;
-
-                // Request next frame
-                requestAnimationFrame(detectFrame);
-            } catch (error) {
-                console.error('Detection error:', error);
-                requestAnimationFrame(detectFrame);
-            }
-        }
+        player.play();
 
         // Update uptime counter
         function updateUptime() {
@@ -267,14 +124,7 @@
                 uptimeElement.textContent = `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
             }, 1000);
         }
-
-        // Wait for player to be ready before setting up
-        player.ready(function() {
-            setupCanvas();
-            loadModel();
-            updateUptime();
-            player.play();
-        });
+        updateUptime();
     </script>
 </body>
 </html>
