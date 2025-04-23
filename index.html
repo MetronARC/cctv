@@ -135,22 +135,27 @@
     <script>
         // Initialize video player
         var player = videojs('videoPlayer');
-        player.play();
-
+        
         // Detection variables
         let model;
         let canvas;
         let context;
         let peopleCount = 0;
         let lastDrawTime = performance.now();
-        const videoElement = document.querySelector('.video-js');
+        let videoElement = null;
 
         // Load the COCO-SSD model
         async function loadModel() {
-            model = await cocoSsd.load();
-            console.log('Model loaded');
-            // Start detection once the model is loaded
-            detectFrame();
+            try {
+                model = await cocoSsd.load();
+                console.log('Model loaded');
+                // Start detection once both model is loaded and video is ready
+                if (videoElement && videoElement.readyState >= 2) {
+                    detectFrame();
+                }
+            } catch (error) {
+                console.error('Error loading model:', error);
+            }
         }
 
         // Initialize canvas
@@ -158,18 +163,29 @@
             canvas = document.getElementById('detectionCanvas');
             context = canvas.getContext('2d');
             
+            // Get the actual video element
+            videoElement = document.querySelector('.video-js video');
+            
             // Update canvas size when video loads
             player.on('loadedmetadata', function() {
-                const videoWidth = videoElement.offsetWidth;
-                const videoHeight = videoElement.offsetHeight;
+                const videoWidth = player.videoWidth();
+                const videoHeight = player.videoHeight();
                 canvas.width = videoWidth;
                 canvas.height = videoHeight;
+                
+                // Start detection if model is already loaded
+                if (model) {
+                    detectFrame();
+                }
             });
         }
 
         // Detect objects in the video frame
         async function detectFrame() {
-            if (!model) return;
+            if (!model || !videoElement || videoElement.readyState < 2) {
+                requestAnimationFrame(detectFrame);
+                return;
+            }
             
             try {
                 const predictions = await model.detect(videoElement);
@@ -231,10 +247,13 @@
             }, 1000);
         }
 
-        // Initialize everything
-        setupCanvas();
-        loadModel();
-        updateUptime();
+        // Wait for player to be ready before setting up
+        player.ready(function() {
+            setupCanvas();
+            loadModel();
+            updateUptime();
+            player.play();
+        });
     </script>
 </body>
 </html>
