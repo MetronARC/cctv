@@ -19,6 +19,7 @@
             padding: 20px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             position: relative;
+            overflow: hidden;
         }
         body {
             background-color: #f8f9fa;
@@ -37,8 +38,10 @@
         }
         #detectionCanvas {
             position: absolute;
-            top: 20px;
-            left: 20px;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             pointer-events: none;
         }
         .detection-stats {
@@ -166,18 +169,28 @@
             // Get the actual video element
             videoElement = document.querySelector('.video-js video');
             
-            // Update canvas size when video loads
-            player.on('loadedmetadata', function() {
-                const videoWidth = player.videoWidth();
-                const videoHeight = player.videoHeight();
-                canvas.width = videoWidth;
-                canvas.height = videoHeight;
+            // Function to update canvas size and position
+            function updateCanvasSize() {
+                const videoRect = videoElement.getBoundingClientRect();
+                canvas.style.top = videoRect.top + 'px';
+                canvas.style.left = videoRect.left + 'px';
+                canvas.width = videoElement.videoWidth || videoRect.width;
+                canvas.height = videoElement.videoHeight || videoRect.height;
                 
-                // Start detection if model is already loaded
-                if (model) {
-                    detectFrame();
-                }
-            });
+                // Scale the canvas context to match video dimensions
+                const scaleX = videoRect.width / canvas.width;
+                const scaleY = videoRect.height / canvas.height;
+                context.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+            }
+            
+            // Update canvas size when video loads and on resize
+            player.on('loadedmetadata', updateCanvasSize);
+            window.addEventListener('resize', updateCanvasSize);
+            
+            // Start detection if model is already loaded
+            if (model) {
+                detectFrame();
+            }
         }
 
         // Detect objects in the video frame
@@ -191,7 +204,7 @@
                 const predictions = await model.detect(videoElement);
                 
                 // Clear previous drawings
-                context.clearRect(0, 0, canvas.width, canvas.height);
+                context.clearRect(0, 0, videoElement.videoWidth, videoElement.videoHeight);
                 
                 // Filter for people and draw bounding boxes
                 const people = predictions.filter(pred => pred.class === 'person');
@@ -200,14 +213,22 @@
 
                 // Draw bounding boxes
                 people.forEach(prediction => {
+                    const [x, y, width, height] = prediction.bbox;
+                    
+                    // Ensure coordinates are within video bounds
+                    const boundedX = Math.max(0, Math.min(x, videoElement.videoWidth));
+                    const boundedY = Math.max(0, Math.min(y, videoElement.videoHeight));
+                    const boundedWidth = Math.min(width, videoElement.videoWidth - boundedX);
+                    const boundedHeight = Math.min(height, videoElement.videoHeight - boundedY);
+
                     // Draw rectangle
                     context.strokeStyle = '#00ff00';
                     context.lineWidth = 2;
                     context.strokeRect(
-                        prediction.bbox[0],
-                        prediction.bbox[1],
-                        prediction.bbox[2],
-                        prediction.bbox[3]
+                        boundedX,
+                        boundedY,
+                        boundedWidth,
+                        boundedHeight
                     );
 
                     // Draw label
@@ -215,8 +236,8 @@
                     context.font = '16px Arial';
                     context.fillText(
                         'Person: ' + Math.round(prediction.score * 100) + '%',
-                        prediction.bbox[0],
-                        prediction.bbox[1] > 10 ? prediction.bbox[1] - 5 : 10
+                        boundedX,
+                        boundedY > 10 ? boundedY - 5 : boundedY + 20
                     );
                 });
 
